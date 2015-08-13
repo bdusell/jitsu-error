@@ -1,0 +1,16 @@
+{
+  "name": "jitsu/error",
+  "description": "Sane PHP error handling and silencing",
+  "keywords": ["error", "handling", "exception"],
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Brian DuSell",
+      "email": "bdusell@gmail.com",
+      "role": "Developer"
+    }
+  ],
+  "require": {
+    "php": ">=5.3.0"
+  }
+}
