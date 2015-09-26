@@ -11,7 +11,7 @@ namespace Jitsu;
  * @param bool $value Whether the script should run in private mode.
  */
 function setScriptPrivacy($value) {
-	setErrorVisibility($value);
+	setErrorVisibility(!$value);
 	if($value) {
 		header_remove('X-Powered-By');
 	}
