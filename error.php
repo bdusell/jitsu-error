@@ -3,41 +3,89 @@
 namespace Jitsu;
 
 /**
- * Set whether the current script should silence all errors.
+ * Set whether the PHP script should run in debug mode or production mode,
+ * overriding PHP's global error and exception handlers with more sensible
+ * behavior.
  *
- * Either turns on full error reporting or silences it completely and hides
- * the `X-Powered-By` header when run as a web app.
+ * This function should be called at the very beginning of a PHP application's
+ * entry point in order to bootstrap error and exception handling as early as
+ * possible; otherwise, errors which occur beforehand may slip by unnoticed.
  *
- * @param bool $value Whether the script should run in private mode.
+ * If `$debug` is true, then the script's global error and exception handlers
+ * will be overridden so that all errors are displayed, which is appropriate
+ * for debugging in a development environment. If `$debug` is false, then all
+ * errors will be suppressed and simply cause the script to exit silently,
+ * which is appropriate for a production environment.
+ *
+ * In either case, errors will always be converted to `ErrorException`s which
+ * can be caught and handled before reaching the global exception handler.
+ *
+ * Additionally, if `$debug` is false, then the default `X-Powered-By` header
+ * will be removed.
+ *
+ * @param bool $debug Whether the script should run in debug mode; otherwise,
+ *                    it will run in production mode.
  */
-function setScriptPrivacy($value) {
-	setErrorVisibility(!$value);
-	if($value) {
-		header_remove('X-Powered-By');
-	}
+function bootstrap($debug = true) {
+	overrideErrorHandlers($debug);
+	if(!$debug) removePoweredByHeader();
 }
 
 /**
- * Activate or deactivate all error reporting.
+ * Override PHP's default error and exception handlers so that all errors are
+ * either displayed or hidden.
  *
- * In either case, converts errors to `ErrorException`s (see `handleErrors`).
+ * If `$debug` is true, then all unhandled exceptions, start-up errors, fatal
+ * errors, etc. will be displayed when they are encountered. If `$debug` is
+ * false, then all of them will be silenced.
  *
- * @param bool $value Whether to report errors.
+ * In either case, errors will always be converted to `ErrorException`s which
+ * can be caught and handled before reaching the global exception handler.
+ *
+ * @param bool $debug Whether to display errors and exceptions or silence them.
  */
-function setErrorVisibility($value) {
-	initErrorVisiblity($value);
-	handleExceptions($value);
-	handleErrors();
-	handleFatalErrors($value);
+function overrideErrorHandlers($debug = true) {
+	initErrorVisibility($debug);
+	overrideErrorHandler();
+	overrideFatalErrorHandler($debug);
+	overrideExceptionHandler($debug);
 }
 
 /**
- * Register an error handler which converts errors to exceptions.
+ * Configure whether to display PHP errors or silence them.
  *
- * The handler simply converts errors to `ErrorException`s whenever an error
- * is encountered (except when the `@` operator is used).
+ * Some of the settings affected here are redundant if the error handler is
+ * overridden, but some of them pertain to errors which the error handler
+ * does not receive, namely start-up errors and memory leaks.
+ *
+ * @param bool $debug Whether to display errors or silence them.
  */
-function handleErrors() {
+function initErrorVisibility($debug = true) {
+
+	/* Display startup errors which cannot be handled by the normal error
+	 * handler. */
+	ini_set('display_startup_errors', $debug);
+
+	/* Display errors (redundant if the default error handler is
+	 * overridden). */
+	ini_set('display_errors', $debug);
+
+	/* Report errors at all severity levels (redundant if the default
+	 * error handler is overridden). */
+	error_reporting($debug ? E_ALL : 0);
+
+	/* Report detected memory leaks. */
+	ini_set('report_memleaks', $debug);
+}
+
+/**
+ * Override the global error handler so that all PHP errors are converted to
+ * exceptions.
+ *
+ * The handler simply converts errors to `ErrorException`s whenever they are
+ * encountered (except when the `@` error suppression operator is used).
+ */
+function overrideErrorHandler() {
 	set_error_handler(function($code, $msg, $file, $line) {
 		/* `error_reporting()` becomes `0` if the `@` operator was
 		 * used. */
@@ -48,7 +96,7 @@ function handleErrors() {
 }
 
 /**
- * Register a pre-defined fatal error handler.
+ * Override the global fatal error handler with more useful behavior.
  *
  * By design, PHP does not allow fatal errors to be handled. However, we can
  * register a shutdown function to print (or not print) information about the
@@ -56,13 +104,13 @@ function handleErrors() {
  * behavior.
  *
  * Note that in either case, in order to silence the usual error output, the
- * default output for *all* errors is disabled.
+ * default output for *all* PHP errors is disabled.
  *
- * @param bool $visible Whether to report fatal errors or silence them.
+ * @param bool $debug Whether to display fatal errors or silence them.
  */
-function handleFatalErrors($visible) {
+function overrideFatalErrorHandler($debug = true) {
 	ini_set('display_errors', false);
-	if($visible) {
+	if($debug) {
 		register_shutdown_function(function() {
 			$e = error_get_last();
 			if($e) {
@@ -70,25 +118,26 @@ function handleFatalErrors($visible) {
 					'line' => '?',
 					'file' => '?'
 				);
-				extract($e);
-				echo ucwords(errorName($type)), ': ', $message, "\n";
-				echo '  at ', $file, ':', $line, "\n";
+				echo ucwords(errorName($e['type'])), ': ', $e['message'], "\n";
+				echo '  at ', $e['file'], ':', $e['line'], "\n";
 			}
 		});
 	}
 }
 
 /**
- * Register a global exception handler which can pretty-print stack traces.
+ * Override the global exception handler with more useful behavior.
  *
- * The exception handler always exits the script.
+ * If `$debug` is true, then unhandled exceptions will cause the script to
+ * print a stack trace and then exit. If `$debug` is false, then the script
+ * will exit silently.
  *
- * @param bool $visible Whether to report uncaught exceptions or exit silently.
+ * @param bool $debug Whether to display stack traces.
  */
-function handleExceptions($visible) {
-	if($visible) {
+function overrideExceptionHandler($debug = true) {
+	if($debug) {
 		set_exception_handler(function($e) {
-			printStackTrace($e);
+			printException($e);
 			exit(1);
 		});
 	} else {
@@ -99,38 +148,11 @@ function handleExceptions($visible) {
 }
 
 /**
- * Set whether errors should be made visible or silenced.
- *
- * This is redundant if the default error handler is overridden.
- *
- * @param bool $value
- */
-function initErrorVisiblity($value) {
-
-	$value = (bool) $value;
-
-	/* Display startup errors which cannot be handled by the normal error
-	 * handler. */
-	ini_set('display_startup_errors', $value);
-
-	/* Display errors (redundant if the default error handler is
-	 * overridden). */
-	ini_set('display_errors', $value);
-
-	/* Report errors at all severity levels (redundant if the default
-	 * error handler is overridden). */
-	error_reporting($value ? E_ALL : 0);
-
-	/* Report detected memory leaks. */
-	ini_set('report_memleaks', $value);
-}
-
-/**
  * Pretty-print an exception and its stack trace.
  *
  * @param \Exception $e
  */
-function printStackTrace($e) {
+function printException($e) {
 	echo get_class($e), ' [', $e->getCode(), ']: ', $e->getMessage(), "\n";
 	foreach($e->getTrace() as $level) {
 		$level += array(
@@ -140,10 +162,9 @@ function printStackTrace($e) {
 			'file' => '',
 			'line' => ''
 		);
-		extract($level);
-		echo '  ', $class, $type, $function, "\n";
-		if($file !== '') {
-			echo '    at ', $file, ':', $line, "\n";
+		echo '  ', $level['class'], $level['type'], $level['function'], "\n";
+		if($level['file'] !== '') {
+			echo '    at ', $level['file'], ':', $level['line'], "\n";
 		}
 	}
 }
@@ -172,4 +193,12 @@ function errorName($type) {
 		E_USER_DEPRECATED => 'user-generated deprecation notice'
 	);
 	return isset($map[$type]) ? $map[$type] : null;
+}
+
+/**
+ * Configure the script not to send the default `X-Powered-By` header in the
+ * HTTP response.
+ */
+function removePoweredByHeader() {
+	header_remove('X-Powered-By');
 }
