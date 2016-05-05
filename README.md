@@ -115,18 +115,18 @@ ln -sf ../app .
 
 ```php
 <?php
-require_once __DIR__ . '/app/vendor/jitsu/error/error.php';
+require_once 'app/vendor/jitsu/error/error.php';
 \Jitsu\bootstrap(true);
-require __DIR__ . '/app/main.php';
+require 'app/main.php';
 ```
 
 **bootstrap/index-prod.php**
 
 ```php
 <?php
-require_once __DIR__ . '/app/vendor/jitsu/error/error.php';
+require_once 'app/vendor/jitsu/error/error.php';
 \Jitsu\bootstrap(false);
-require __DIR__ . '/app/main.php';
+require 'app/main.php';
 ```
 
 **app/main.php**
